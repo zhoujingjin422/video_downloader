@@ -1271,21 +1271,38 @@ class VideoDownloaderApp(ctk.CTk):
         
         # 尝试找字幕文件（支持多种格式）
         subtitle_file = None
-        subtitle_formats = ['.srt', '.ass', '.ssa', '.vtt']
+        subtitle_formats = ['.vtt', '.srt', '.ass', '.ssa']  # VTT优先，因为YouTube常用
         
-        for fmt in subtitle_formats:
-            # 尝试找带_en, _zh等后缀的字幕文件
-            for suffix in ['_en', '_zh', '_zh-CN', '']:
-                potential_file = os.path.join(video_dir, f"{video_name}{suffix}{fmt}")
-                if os.path.exists(potential_file):
-                    subtitle_file = potential_file
-                    print(f"找到字幕文件: {potential_file}")
+        # 等待字幕文件生成（最多等待30秒）
+        max_wait = 30
+        wait_interval = 0.5
+        elapsed = 0
+        
+        while elapsed < max_wait:
+            for fmt in subtitle_formats:
+                # 尝试找带_en, _zh等后缀的字幕文件
+                for suffix in ['_en', '_zh', '_zh-CN', '_zh-Hans', '']:
+                    potential_file = os.path.join(video_dir, f"{video_name}{suffix}{fmt}")
+                    if os.path.exists(potential_file):
+                        subtitle_file = potential_file
+                        print(f"[Subtitles] 找到字幕文件: {os.path.basename(potential_file)}")
+                        break
+                if subtitle_file:
                     break
+            
             if subtitle_file:
+                break
+            
+            # 字幕文件还没生成，等待一下再试
+            if elapsed < max_wait - wait_interval:
+                print(f"[Subtitles] 等待字幕文件生成... ({elapsed:.1f}s)")
+                time.sleep(wait_interval)
+                elapsed += wait_interval
+            else:
                 break
         
         if not subtitle_file:
-            print(f"未找到字幕文件，跳过内嵌")
+            print(f"[Subtitles] 未找到字幕文件，跳过内嵌 (等待了{elapsed:.1f}秒)")
             return None
         
         name, ext = os.path.splitext(video_path)
@@ -1305,19 +1322,19 @@ class VideoDownloaderApp(ctk.CTk):
                 output
             ]
             
-            print(f"[Subtitles] 开始内嵌字幕: {subtitle_file}")
+            print(f"[Subtitles] 开始内嵌字幕: {os.path.basename(subtitle_file)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)
             
             if result.returncode == 0 and os.path.exists(output):
                 try:
                     # 删除原视频文件
                     os.remove(video_path)
-                    print(f"字幕内嵌成功: {output}")
+                    print(f"[Subtitles] 字幕内嵌成功")
                     
                     # 尝试删除字幕文件
                     try:
                         os.remove(subtitle_file)
-                        print(f"已删除字幕文件: {subtitle_file}")
+                        print(f"[Subtitles] 已删除临时字幕文件")
                     except:
                         pass  # 删除失败就忽略
                     
@@ -1326,13 +1343,13 @@ class VideoDownloaderApp(ctk.CTk):
                     return output  # 即使删除失败也返回新文件
             else:
                 error_msg = result.stderr[-500:] if result.stderr else "未知错误"
-                print(f"内嵌字幕失败: {error_msg}")
+                print(f"[Subtitles] 内嵌失败: {error_msg}")
                 return None
         
         except subprocess.TimeoutExpired:
-            print("内嵌字幕超时")
+            print("[Subtitles] 内嵌超时")
         except Exception as e:
-            print(f"内嵌字幕错误: {e}")
+            print(f"[Subtitles] 错误: {e}")
         
         return None
     
