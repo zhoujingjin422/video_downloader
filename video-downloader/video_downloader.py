@@ -1006,6 +1006,14 @@ class VideoDownloaderApp(ctk.CTk):
                 if no_wm:
                     downloaded_path = no_wm
             
+            # 内嵌字幕到视频
+            subtitle_choice = self.subtitle_select_var.get()
+            if downloaded_path and subtitle_choice != "无":
+                self.update_status("📝 内嵌字幕中...")
+                with_subs = self.embed_subtitles(downloaded_path, safe_title)
+                if with_subs:
+                    downloaded_path = with_subs
+            
             if downloaded_path:
                 self.progress_bar.set(1)
                 file_size = os.path.getsize(downloaded_path)
@@ -1244,6 +1252,87 @@ class VideoDownloaderApp(ctk.CTk):
             print("去水印超时")
         except Exception as e:
             print(f"去水印错误: {e}")
+        
+        return None
+    
+    def embed_subtitles(self, video_path, video_title):
+        """使用ffmpeg将字幕内嵌到视频中"""
+        if not os.path.exists(video_path):
+            return None
+        
+        ffmpeg_path = self.get_ffmpeg_path()
+        if not ffmpeg_path:
+            print("错误: 未找到ffmpeg")
+            return None
+        
+        # 查找对应的字幕文件
+        video_dir = os.path.dirname(video_path)
+        video_name = os.path.splitext(os.path.basename(video_path))[0]
+        
+        # 尝试找字幕文件（支持多种格式）
+        subtitle_file = None
+        subtitle_formats = ['.srt', '.ass', '.ssa', '.vtt']
+        
+        for fmt in subtitle_formats:
+            # 尝试找带_en, _zh等后缀的字幕文件
+            for suffix in ['_en', '_zh', '_zh-CN', '']:
+                potential_file = os.path.join(video_dir, f"{video_name}{suffix}{fmt}")
+                if os.path.exists(potential_file):
+                    subtitle_file = potential_file
+                    print(f"找到字幕文件: {potential_file}")
+                    break
+            if subtitle_file:
+                break
+        
+        if not subtitle_file:
+            print(f"未找到字幕文件，跳过内嵌")
+            return None
+        
+        name, ext = os.path.splitext(video_path)
+        output = f"{name}_with_subtitle{ext}"
+        
+        try:
+            # 使用ffmpeg的subtitles滤镜将字幕烧录到视频中
+            # 这样所有播放器都能看到字幕
+            cmd = [
+                ffmpeg_path,
+                '-i', video_path,
+                '-vf', f"subtitles='{subtitle_file}'",  # 烧录字幕到视频
+                '-c:a', 'aac',  # 音频编码为AAC
+                '-c:v', 'libx264',  # 视频编码为H.264
+                '-preset', 'fast',  # 快速编码
+                '-y',  # 覆盖输出文件
+                output
+            ]
+            
+            print(f"[Subtitles] 开始内嵌字幕: {subtitle_file}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)
+            
+            if result.returncode == 0 and os.path.exists(output):
+                try:
+                    # 删除原视频文件
+                    os.remove(video_path)
+                    print(f"字幕内嵌成功: {output}")
+                    
+                    # 尝试删除字幕文件
+                    try:
+                        os.remove(subtitle_file)
+                        print(f"已删除字幕文件: {subtitle_file}")
+                    except:
+                        pass  # 删除失败就忽略
+                    
+                    return output
+                except:
+                    return output  # 即使删除失败也返回新文件
+            else:
+                error_msg = result.stderr[-500:] if result.stderr else "未知错误"
+                print(f"内嵌字幕失败: {error_msg}")
+                return None
+        
+        except subprocess.TimeoutExpired:
+            print("内嵌字幕超时")
+        except Exception as e:
+            print(f"内嵌字幕错误: {e}")
         
         return None
     
